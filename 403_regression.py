@@ -29,7 +29,7 @@ tf_y = tf.placeholder(tf.float32, shape=[None, TIME_STEP, INPUT_SIZE])
 
 # RNN
 rnn_cell = tf.contrib.rnn.BasicRNNCell(num_units=CELL_SIZE)
-init_s = rnn_cell.zero_state(batch_size = 1, dtype=tf.float32)
+init_s = rnn_cell.zero_state(batch_size=1, dtype=tf.float32)
 outputs, final_s = tf.nn.dynamic_rnn(
     rnn_cell,  # cell
     tf_x,  # input
@@ -37,26 +37,27 @@ outputs, final_s = tf.nn.dynamic_rnn(
     time_major=False,  # ()
 )
 
-#reshape 3d output to 2d for fully connected layer
+# reshape 3d output to 2d for fully connected layer
 outs2D = tf.reshape(outputs, [-1, CELL_SIZE])
-net_outs2D = tf.layers.dense(outs2D,INPUT_SIZE)
+net_outs2D = tf.layers.dense(outs2D, INPUT_SIZE)
 
-#reshape back to 3d
-outs=tf.reshape(net_outs2D,[-1,TIME_STEP,INPUT_SIZE])
+# reshape back to 3d
+outs = tf.reshape(net_outs2D, [-1, TIME_STEP, INPUT_SIZE])
 
-#loss and train_op
-loss = tf.losses.mean_squared_error(tf_y,predictions=outs)
+# loss and train_op
+loss = tf.losses.mean_squared_error(tf_y, predictions=outs)
 train_op = tf.train.AdamOptimizer(LR).minimize(loss)
 
-#sess and init
+# sess and init
 sess = tf.Session()
 sess.run(tf.global_variables_initializer())
 
-plt.figure(1, figsize=(12, 5)); plt.ion()       # continuously plot
+plt.figure(1, figsize=(12, 5));
+plt.ion()  # continuously plot
 
-#training_step
+# training_step
 for step in range(60):
-    start, end = step * np.pi, (step+1)*np.pi   # time range
+    start, end = step * np.pi, (step + 1) * np.pi  # time range
     # use sin predicts cos
     steps = np.linspace(start, end, TIME_STEP)
     x = np.sin(steps)[np.newaxis, :, np.newaxis]  # shape (batch, time_step, input_size)
