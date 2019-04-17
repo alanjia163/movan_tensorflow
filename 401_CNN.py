@@ -1,111 +1,91 @@
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
 
-import numpy as np
-import matplotlib.pyplot as plt
+# load data
+mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
 
-tf.set_random_seed(1)
-np.random.seed(1)
+# placeholders
+xs = tf.placeholder(tf.float32, shape=[None, 28 * 28])  # shape为文件本来的尺寸
+ys = tf.placeholder(tf.float32, shape=(None, 10))
+keep_prob = tf.placeholder(tf.float32)  # dropout_rate
 
-BATCH_SIZE = 50
-LR = 0.001
-
-mnist = input_data.read_data_sets('./mnist', one_hot=True)
-test_x = mnist.test.images[:2000]
-test_y = mnist.test.labels[:2000]
-
-#reshap_input
-
-image = tf.reshape(test_x,[-1,28,28,1])
-
-# plot one example
-print(mnist.train.images.shape)  # (55000, 28 * 28)
-print(mnist.train.labels.shape)  # (55000, 10)
-plt.imshow(mnist.train.images[0].reshape((28, 28)), cmap='gray')
-plt.title('%i' % np.argmax(mnist.train.labels[0]))
-plt.show()
-
-tf_x = tf.placeholder(tf.int32, [None, 10])
-tf_y = tf.placeholder(tf.int32, [None, 1])
+# reshape->xs,输入形状
+x_image = tf.reshape(xs, [-1, 28, 28, 1])  # []
 
 
-# CNN
-conv1 = tf.layers.conv2d(
-    inputs=image,
-    filters=16,
-    kernel_size=5,
-    strides=1,
-    padding='SAME',
-    activation=tf.nn.relu
-)
-pool1 = tf.layers.max_pooling2d(
-    conv1,
-    pool_size=2,
-    strides=2,
-    padding='SAME',
-)
-conv2 = tf.layers.conv2d(pool1, 32, 5, 1, 'SAME', activation=tf.nn.relu)
-pool2 = tf.layers.max_pooling2d(conv2, pool_size=2, strides=2)
+# add_layers
+def weight_variable(shape):
+    initial = tf.truncated_normal(shape, stddev=0.1)
+    return tf.Variable(initial)
 
-flat = tf.reshape(pool2, [-1, 7 * 7 * 32])
-output = tf.layers.dense(flat, 10)
+
+def bias_variable(shape):
+    initial = tf.constant(0.1, shape=shape)
+    return tf.Variable(initial)
+
+
+def conv2d(shape, W):
+    # stride [1,x_movement,y_movement,1]
+    return tf.nn.conv2d(shape, W, strides=[1, 1, 1, 1], padding='SAME')
+
+
+def max_pool_2x2(x):
+    return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+
+
+## conv1 layer ##
+W_conv1 = weight_variable([5, 5, 1, 32])  # patch 5x5, in size 1, out size 32
+b_conv1 = bias_variable([32])
+h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)  # output size 28x28x32
+h_pool1 = max_pool_2x2(h_conv1)  # output size 14x14x32
+
+## conv2 layer ##
+W_conv2 = weight_variable([5, 5, 32, 64])  # patch 5x5, in size 32, out size 64
+b_conv2 = bias_variable([64])
+h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)  # output size 14x14x64
+h_pool2 = max_pool_2x2(h_conv2)  # output size 7x7x64
+
+## func1 layer ##
+W_fc1 = weight_variable([7*7*64, 1024])
+b_fc1 = bias_variable([1024])
+# [n_samples, 7, 7, 64] ->> [n_samples, 7*7*64]
+h_pool2_flat = tf.reshape(h_pool2, [-1, 7*7*64])
+h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
+h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
+
+## func2 layer ##
+W_fc2 = weight_variable([1024, 10])
+b_fc2 = bias_variable([10])
+prediction = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)
+
 # loss and train_op
-loss = tf.losses.softmax_cross_entropy(onehot_labels=tf_y, logits=output)
-train_op = tf.train.AdamOptimizer(LR).minimize(loss)
+# the error between prediction and real data
+cross_entropy = tf.reduce_mean(-tf.reduce_sum(ys * tf.log(prediction),
+                                              reduction_indices=[1]))       # loss
+train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
 
-# return
-accuracy = tf.metrics.accuracy(labels=tf.argmax(tf_y, axis=1), predictions=tf.argmax(output, axis=1), )[1]
-
-# session
-with tf.Session() as sess:
-    init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-    sess.run(init)
-
-    # following function (plot_with_labels) is for visualization, can be ignored if not interested
-    from matplotlib import cm
-
-    try:
-        from sklearn.manifold import TSNE;
-
-        HAS_SK = True
-    except:
-        HAS_SK = False;
-        print('\nPlease install sklearn for layer visualization\n')
+# accuracy
+def compute_accuracy(v_xs, v_ys):
+    global prediction
+    y_pre = sess.run(prediction, feed_dict={xs: v_xs, keep_prob: 1})
+    correct_prediction = tf.equal(tf.argmax(y_pre,1), tf.argmax(v_ys,1))
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    result = sess.run(accuracy, feed_dict={xs: v_xs, ys: v_ys, keep_prob: 1})
+    return result
 
 
-    def plot_with_labels(lowDWeights, labels):
-        plt.cla()
-        X, Y = lowDWeights[:, 0], lowDWeights[:, 1]
-        for x, y, s in zip(X, Y, labels):
-            c = cm.rainbow(int(255 * s / 9))
-            plt.text(x, y, s, backgroundcolor=c, fontsize=9)
-        plt.xlim(X.min(), X.max())
-        plt.ylim(Y.min(), Y.max())
-        plt.title('Visualize last layer')
-        plt.show()
-        plt.pause(0.01)
+# the error between prediction and real data
+cross_entropy = tf.reduce_mean(-tf.reduce_sum(ys * tf.log(prediction),
+                                              reduction_indices=[1]))       # loss
+train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
 
+sess = tf.Session()
+# important step
+sess.run(tf.initialize_all_variables())
 
-    plt.ion()
-    for step in range(600):
-        b_x, b_y = mnist.train.next_batch(BATCH_SIZE)
-        _, loss_ = sess.run([train_op, loss], {tf_x: b_x, tf_y: b_y})
-
-        if step % 50 == 0:
-            accuracy_,flat_representation = sess.run([accuracy,flat],{tf_x:test_x,tf_y:test_y})
-            print('step:',step,'train loss',loss_,'|testaccuracy:',accuracy_)
-
-            if HAS_SK:
-                # Visualization of trained flatten layer (T-SNE)
-                tsne = TSNE(perplexity=30, n_components=2, init='pca', n_iter=5000);
-                plot_only = 500
-                low_dim_embs = tsne.fit_transform(flat_representation[:plot_only, :])
-                labels = np.argmax(test_y, axis=1)[:plot_only];
-                plot_with_labels(low_dim_embs, labels)
-        plt.ioff()
-
-        # print 10 predictions from test data
-        test_output = sess.run(output, {tf_x: test_x[:10]})
-        pred_y = np.argmax(test_output, 1)
-        print(pred_y, 'prediction number')
-        print(np.argmax(test_y[:10], 1), 'real number')
+for i in range(1000):
+    batch_xs, batch_ys = mnist.train.next_batch(100)
+    sess.run(train_step, feed_dict={xs: batch_xs, ys: batch_ys, keep_prob: 0.5})
+    if i % 50 == 0:
+        print(compute_accuracy(
+            mnist.test.images, mnist.test.labels))
